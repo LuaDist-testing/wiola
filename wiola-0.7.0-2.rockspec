@@ -1,10 +1,18 @@
-package = "Wiola"
+-- This file was automatically generated for the LuaDist project.
+
+package = "wiola"
 version = "0.7.0-2"
 
+-- LuaDist source
 source = {
-    url = "git://github.com/KSDaemon/wiola.git",
-    tag = "v0.7.0"
+  tag = "0.7.0-2",
+  url = "git://github.com/LuaDist-testing/wiola.git"
 }
+-- Original source
+-- source = {
+--     url = "git://github.com/KSDaemon/wiola.git",
+--     tag = "v0.7.0"
+-- }
 
 description = {
     summary = "LUA WAMP router",
