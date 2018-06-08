@@ -1,17 +1,17 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "wiola"
-version = "0.5.2-1"
+version = "0.6.0-2"
 
 -- LuaDist source
 source = {
-  tag = "0.5.2-1",
+  tag = "0.6.0-2",
   url = "git://github.com/LuaDist-testing/wiola.git"
 }
 -- Original source
 -- source = {
 --     url = "git://github.com/KSDaemon/wiola.git",
---     tag = "v0.5.2"
+--     tag = "v0.6.0"
 -- }
 
 description = {
@@ -31,6 +31,7 @@ dependencies = {
     "lua >= 5.1",
     "luarestyredis",
     "rapidjson >= 0.3",
+    "lua-resty-hmac >= v1.0",
     "lua-messagepack >= 0.3"
 }
 
@@ -38,6 +39,8 @@ build = {
     type = 'builtin',
     modules = {
         ['wiola'] = 'build/wiola.lua',
+        ['wiola.cleanup'] = 'build/cleanup.lua',
+        ['wiola.config'] = 'build/config.lua',
         ['wiola.handler'] = 'build/handler.lua',
         ['wiola.headers'] = 'build/headers.lua',
         ['wiola.post-handler'] = 'build/post-handler.lua',

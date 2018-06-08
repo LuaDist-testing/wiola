@@ -12,19 +12,20 @@ Table of Contents
 * [Installation](#installation)
 * [Dependencies](#dependencies)
 * [Methods](#methods)
-    * [setupRedis](#setupredishost-port-db)
+    * [configure](#configconfig)
+    * [setupRedis](#setupredis)
     * [addConnection](#addconnectionsid-wampproto)
-    * [removeConnection](#removeconnectionregid)
     * [receiveData](#receivedataregid-data)
     * [getPendingData](#getpendingdataregid)
     * [processPostData](#processpostdatasid-realm-data)
+* [Authentication](#authentication)
 * [Copyright and License](#copyright-and-license)
 * [See Also](#see-also)
 
 Description
 ===========
 
-Wiola implements [WAMP](http://wamp.ws) v2 router specification on top of OpenResty web app server,
+Wiola implements [WAMP specification][] v2 router specification on top of OpenResty web app server,
  which is actually nginx plus a bunch of 3rd party modules, such as lua-nginx-module, lua-resty-websocket,
  lua-resty-redis, lua-resty-libcjson and so on.
 
@@ -39,6 +40,8 @@ wiola supports next WAMP roles and features:
     * caller exclusion
     * caller identification
     * progressive call results
+* Challenge Response Authentication ("WAMP-CRA")
+* Cookie Authentication
 
 Wiola supports JSON and msgpack serializers.
 
@@ -59,15 +62,16 @@ Installation
 To use wiola you need:
 
 * Nginx or OpenResty
-* [luajit](http://luajit.org/)
-* [lua-nginx-module](https://github.com/chaoslawful/lua-nginx-module)
-* [lua-resty-websocket](https://github.com/agentzh/lua-resty-websocket)
-* [lua-resty-redis](https://github.com/agentzh/lua-resty-redis)
-* [Redis server](http://redis.io)
-* [lua-rapidjson](https://github.com/xpol/lua-rapidjson)
-* [lua-MessagePack](http://fperrad.github.io/lua-MessagePack/) (optional)
+* [luajit][]
+* [lua-nginx-module][]
+* [lua-resty-websocket][]
+* [lua-resty-redis][]
+* [Redis server][]
+* [lua-rapidjson][]
+* [lua-resty-hmac][] (optional, required for WAMP-CRA)
+* [lua-MessagePack][] (optional)
 
-Instead of compiling lua-* modules into nginx, you can simply use [OpenResty](http://openresty.org) server.
+Instead of compiling lua-* modules into nginx, you can simply use [OpenResty][] server.
 
 In any case, for your convenience, you can install Wiola through [luarocks](http://luarocks.org/modules/ksdaemon/wiola)
 by `luarocks install wiola`.
@@ -83,6 +87,9 @@ lua_package_path '/usr/local/lualib/wiola/?.lua;/usr/local/lualib/lua-MessagePac
 server {
    # example location for websocket WAMP connection
    location /ws/ {
+      set $wiola_socket_timeout 100;     # Optional parameter. Set the value to suit your needs
+      set $wiola_max_payload_len 65535; # Optional parameter. Set the value to suit your needs
+      
       lua_socket_log_errors off;
       lua_check_client_abort on;
 
@@ -110,16 +117,94 @@ Actually, you do not need to do anything else. Just take any WAMP client and mak
 Methods
 ========
 
-setupRedis(host, port, db)
+config(config)
 ------------------------------------------
 
-Configure and initialize connection to Redis server.
+Configure Wiola Instance or retrieve current configuration. All options are optional. Some options have default value, 
+or are nils if not specified.
 
 Parameters:
 
- * **host** - Redis server host or Redis unix socket path
- * **port** - Redis server port (in case of use network connection). Omit for socket connection.
- * **db** - Redis database index to select
+ * **config** - Configuration table with possible options:
+    * **redis** - Redis connection configuration table:
+        * **host** - Redis server host or Redis unix socket path. Default: "unix:/tmp/redis.sock"
+        * **port** - Redis server port (in case of use network connection). Omit for socket connection
+        * **db** - Redis database index to select
+    * **callerIdentification** - Disclose caller identification? Possible values: auto | never | always. Default: "auto"
+    * **cookieAuth** - Cookie-based Authentication configuration table:
+        * **authType** - Type of auth. Possible values: none | static | dynamic. Default: "none", which means - don't use
+        * **cookieName** - Name of cookie with auth info. Default: "wampauth"
+        * **staticCredentials** - Array-like table with string items, allowed to connect. Is used with authType="static"
+        * **authCallback** - Callback function for authentication. Is used with authType="dynamic". Value of cookieName
+         is passed as first parameter. Should return boolean flag, true - allows connection, false - prevent connection
+    * **wampCRA** - WAMP Challenge-Response ("WAMP-CRA") authentication configuration table:
+        * **authType** - Type of auth. Possible values: none | static | dynamic. Default: "none", which means - don't use
+        * **staticCredentials** - table with keys, named as authids and values like { authrole = "userRole1", secret="secret1" },
+        allowed to connect. Is used with authType="static"
+        * **challengeCallback** - Callback function for generating challenge info. Is used with authType="dynamic".
+        Is called on HELLO message, passing session ID as first parameter and authid as second one. 
+        Should return challenge string the client needs to create a signature for. 
+        Check [Challenge Response Authentication section in WAMP Specification][] for more info.
+        * **authCallback** - Callback function for checking auth signature. Is used with authType="dynamic".
+        Is called on AUTHENTICATE message, passing session ID as first parameter and signature as second one.
+        Should return auth info object { authid="user1", authrole="userRole", authmethod="wampcra", authprovider="usersProvider" }
+        or nil | false in case of failure.
+
+When called without parameters, returns current configuration.
+When setting configuration, returns nothing.
+
+Config example (multiple options, just for showcase):
+```nginx
+    init_by_lua_block {
+        local cfg = require "wiola.config"
+        cfg.config({
+            callerIdentification = "always",
+            redis = {
+                host = "unix:/tmp/redis.sock"   -- Optional parameter. Can be hostname/ip or socket path
+                --port 6379                     -- Optional parameter. Should be set when using hostname/ip
+                                                -- Omit for socket connection
+                --db 25                         -- Optional parameter. Redis db to use
+            },
+            cookieAuth = {
+                authType = "none",              -- none | static | dynamic
+                cookieName = "wampauth",
+                staticCredentials = { "user1:pass1", "user2:pass2"},
+                authCallback = function (creds)
+                    if creds ~= "" then
+                        return true
+                    end
+
+                    return false
+                end
+            },
+            wampCRA = {
+                authType = "dynamic",              -- none | static | dynamic
+                staticCredentials = {
+                    user1 = { authrole = "userRole1", secret="secret1" },
+                    user2 = { authrole = "userRole2", secret="secret2" }
+                },
+                challengeCallback = function (sessionid, authid)
+                    return "{ \"nonce\": \"LHRTC9zeOIrt_9U3\"," ..
+                             "\"authprovider\": \"usersProvider\", \"authid\": \"" .. authid .. "\"," ..
+                             "\"timestamp\": \"" .. os.date("!%FT%TZ") .. "\"," ..
+                             "\"authrole\": \"userRole1\", \"authmethod\": \"wampcra\"," ..
+                             "\"session\": " .. sessionid .. "}"
+                end,
+                authCallback = function (sessionid, signature)
+                    return { authid="user1", authrole="userRole1", authmethod="wampcra", authprovider="usersProvider" }
+                end
+            }
+        })
+    }
+```
+
+
+[Back to TOC](#table-of-contents)
+
+setupRedis()
+------------------------------------------
+
+Initialize connection to Redis server.
 
 Returns:
 
@@ -142,19 +227,6 @@ Returns:
 
  * **WAMP session ID** (integer)
  * **Connection data type** (string: 'text' or 'binary')
-
-[Back to TOC](#table-of-contents)
-
-removeConnection(regId)
-------------------------------------------
-
-Removes connection from viola control. Cleans all cached data. Do not neglect this method on connection termination.
-
-Parameters:
-
- * **regId** - WAMP session ID
-
-Returns: nothing
 
 [Back to TOC](#table-of-contents)
 
@@ -210,6 +282,66 @@ Returns:
 
 [Back to TOC](#table-of-contents)
 
+Authentication
+==============
+
+Beginning with v0.6.0 Wiola supports several types of authentication:
+
+* Cookie authentication:
+     * Static configuration
+     * Dynamic callback
+* Challenge Response Authentication:
+     * Static configuration
+     * Dynamic callback
+
+Also it is possible to use both types of authentication :) 
+To setup authentication you need to [configure](#configconfig) Wiola somewhere in nginx/openresty before request processing.
+In simple case, you can do it just in nginx http config section.
+
+```lua
+local cfg = require "wiola.config"
+cfg.config({
+    cookieAuth = {
+        authType = "dynamic",              -- none | static | dynamic
+        cookieName = "wampauth",
+        staticCredentials = { "user1:pass1", "user2:pass2"},
+        authCallback = function (creds)
+            -- Validate credentials somehow
+            -- return true, if valid 
+            if isValid(creds) then 
+                return true
+            end
+
+            return false
+        end
+    },
+    wampCRA = {
+        authType = "dynamic",              -- none | static | dynamic
+        staticCredentials = {
+            user1 = { authrole = "userRole1", secret="secret1" },
+            user2 = { authrole = "userRole2", secret="secret2" }
+        },
+        challengeCallback = function (sessionid, authid)
+            -- Generate a challenge string somehow and return it
+            -- Do not forget to save it somewhere for response validation!
+            
+            return "{ \"nonce\": \"LHRTC9zeOIrt_9U3\"," ..
+                     "\"authprovider\": \"usersProvider\", \"authid\": \"" .. authid .. "\"," ..
+                     "\"timestamp\": \"" .. os.date("!%FT%TZ") .. "\"," ..
+                     "\"authrole\": \"userRole1\", \"authmethod\": \"wampcra\"," ..
+                     "\"session\": " .. sessionid .. "}"
+        end,
+        authCallback = function (sessionid, signature)
+            -- Validate responsed signature against challenge
+            -- return auth info object (like bellow) or nil if failed
+            return { authid="user1", authrole="userRole1", authmethod="wampcra", authprovider="usersProvider" }
+        end
+    }
+})
+```
+
+[Back to TOC](#table-of-contents)
+
 Copyright and License
 =====================
 
@@ -244,15 +376,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 See Also
 ========
 
-* [WAMP specification](http://wamp.ws)
-* [Wampy.js](https://github.com/KSDaemon/wampy.js). WAMP Javascript client-side implementation.
-* [OpenResty](http://openresty.org)
-* [lua-nginx-module](https://github.com/chaoslawful/lua-nginx-module)
-* [lua-resty-websocket](https://github.com/agentzh/lua-resty-websocket)
-* [lua-resty-libcjson](https://github.com/bungle/lua-resty-libcjson)
-* [lua-rapidjson](https://github.com/xpol/lua-rapidjson)
-* [lua-resty-redis](https://github.com/agentzh/lua-resty-redis)
-* [Redis key-value store](http://redis.io)
-* [lua-MessagePack](http://fperrad.github.io/lua-MessagePack/)
+* [WAMP specification][]
+* [Challenge Response Authentication section in WAMP Specification][]
+* [Wampy.js][]. WAMP Javascript client implementation
+* [OpenResty][]
+* [lua-nginx-module][]
+* [lua-resty-websocket][]
+* [lua-rapidjson][]
+* [lua-resty-redis][]
+* [Redis server][]
+* [lua-MessagePack][]
 
 [Back to TOC](#table-of-contents)
+
+
+[WAMP specification]: http://wamp-proto.org/
+[Challenge Response Authentication section in WAMP Specification]: https://tools.ietf.org/html/draft-oberstet-hybi-tavendo-wamp-02#section-13.7.2.3
+[Wampy.js]: https://github.com/KSDaemon/wampy.js
+[OpenResty]: http://openresty.org
+[luajit]: http://luajit.org/
+[lua-nginx-module]: https://github.com/chaoslawful/lua-nginx-module
+[lua-resty-websocket]: https://github.com/agentzh/lua-resty-websocket
+[lua-rapidjson]: https://github.com/xpol/lua-rapidjson
+[lua-resty-redis]: https://github.com/agentzh/lua-resty-redis
+[Redis server]: http://redis.io
+[lua-MessagePack]: http://fperrad.github.io/lua-MessagePack/
+[lua-resty-hmac]: https://github.com/jamesmarlowe/lua-resty-hmac
