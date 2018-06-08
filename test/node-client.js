@@ -4,7 +4,7 @@
  * Date: 21.10.16
  */
 
-const Wampy = require('wampy');
+const Wampy = require('wampy').Wampy;
 const w3cws = require('websocket').w3cwebsocket;
 let ws, d = Date.now();
 
@@ -34,7 +34,7 @@ ws = new Wampy('ws://webxp/ws/', {
     onClose: function () {
         console.log('+' + (Date.now() - d) + 'ms: Connection to WAMP server closed!');
     },
-    onError: function () { console.log('Breakdown happened'); },
+    onError: function (err) { console.log('Breakdown happened! ', err); },
     onReconnect: function () { console.log('Reconnecting...'); },
     onReconnectSuccess: function () { console.log('Reconnection succeeded...'); }
 });
