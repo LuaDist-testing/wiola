@@ -10,13 +10,14 @@ Table of Contents
 * [Description](#description)
 * [Usage example](#usage-example)
 * [Installation](#installation)
+* [Authentication](#authentication)
+* [Call and Publication trust levels](#call-and-publication-trust-levels)
 * [Methods](#methods)
-    * [configure](#configconfig)
+    * [config](#configconfig)
     * [addConnection](#addconnectionsid-wampproto)
     * [receiveData](#receivedataregid-data)
     * [getPendingData](#getpendingdataregid)
     * [processPostData](#processpostdatasid-realm-data)
-* [Authentication](#authentication)
 * [Copyright and License](#copyright-and-license)
 * [See Also](#see-also)
 
@@ -30,20 +31,22 @@ Wiola implements [WAMP specification][] v2 router specification on top of OpenRe
 Wiola supports next WAMP roles and features:
 
 * broker: advanced profile with features:
-    * subscriber blackwhite listing
+    * pattern based subscription
     * publisher exclusion
     * publisher identification
+    * publication trust levels
     * session meta api
+    * subscriber blackwhite listing
     * subscription meta api (partly)
-    * pattern based subscription
 * dealer: advanced profile with features:
-    * callee blackwhite listing
-    * caller exclusion
+    * call canceling
+    * call timeout
     * caller identification
-    * progressive call results
-    * session meta api
-    * registration meta api (partly)
+    * call trust levels
     * pattern based registration
+    * progressive call results
+    * registration meta api (partly)
+    * session meta api
 * Challenge Response Authentication ("WAMP-CRA")
 * Cookie Authentication
 
@@ -97,13 +100,51 @@ http {
         -- Wiola configuration. You can read more in description of .configure() method below.
         local cfg = require "wiola.config"
         cfg.config({
-            redis = {
-                host = "unix:///tmp/redis.sock"   -- Optional parameter. Can be hostname/ip or socket path
+            store = "redis",
+            storeConfig = {
+                host = "unix:///tmp/redis.sock",  -- Optional parameter. Can be hostname/ip or socket path  
                 --port = 6379                     -- Optional parameter. Should be set when using hostname/ip
-                                                -- Omit for socket connection
-                --db = 5                         -- Optional parameter. Redis db to use
+                                                  -- Omit for socket connection
+                --db = 5                          -- Optional parameter. Redis db to use
             },
-            metaAPI = {
+            callerIdentification = "auto",        -- Optional parameter. auto | never | always
+            cookieAuth = {                        -- Optional parameter. 
+                authType = "none",                -- none | static | dynamic
+                cookieName = "wampauth",
+                staticCredentials = nil, --{
+                    -- "user1", "user2:password2", "secretkey3"
+                --},
+                authCallback = nil
+            },
+            wampCRA = {                           -- Optional parameter.
+                authType = "none",                -- none | static | dynamic
+                staticCredentials = nil, --{
+                    -- user1 = { authrole = "userRole1", secret="secret1" },
+                    -- user2 = { authrole = "userRole2", secret="secret2" }
+                --},
+                challengeCallback = nil,
+                authCallback = nil
+            },
+            trustLevels = {                       -- Optional parameter.
+                authType = "none",                -- none | static | dynamic
+                defaultTrustLevel = nil,
+                staticCredentials = {
+                    byAuthid = {
+                        --{ authid = "user1", trustlevel = 1 },
+                        --{ authid = "admin1", trustlevel = 5 }
+                    },
+                    byAuthRole = {
+                        --{ authrole = "user-role", trustlevel = 2 },
+                        --{ authrole = "admin-role", trustlevel = 4 }
+                    },
+                    byClientIp = {
+                        --{ clientip = "127.0.0.1", trustlevel = 10 }
+                    }
+                },
+                authCallback = nil -- function that accepts (client ip address, realm,
+                                   -- authid, authrole) and returns trust level
+            },
+            metaAPI = {                           -- Expose META API ? Optional parameter.
                 session = true,
                 subscription = true,
                 registration = true
@@ -149,6 +190,124 @@ Actually, you do not need to do anything else. Just take any WAMP client and mak
 
 [Back to TOC](#table-of-contents)
 
+Authentication
+==============
+
+Beginning with v0.6.0 Wiola supports several types of authentication:
+
+* Cookie authentication:
+     * Static configuration
+     * Dynamic callback
+* Challenge Response Authentication:
+     * Static configuration
+     * Dynamic callback
+
+Also it is possible to use both types of authentication :) 
+To setup authentication you need to [config](#configconfig) Wiola somewhere in nginx/openresty before request processing.
+In simple case, you can do it just in nginx http config section.
+
+```lua
+local cfg = require "wiola.config"
+cfg.config({
+    cookieAuth = {
+        authType = "dynamic",              -- none | static | dynamic
+        cookieName = "wampauth",
+        staticCredentials = { "user1:pass1", "user2:pass2"},
+        authCallback = function (creds)
+            -- Validate credentials somehow
+            -- return true, if valid 
+            if isValid(creds) then 
+                return true
+            end
+
+            return false
+        end
+    },
+    wampCRA = {
+        authType = "dynamic",              -- none | static | dynamic
+        staticCredentials = {
+            user1 = { authrole = "userRole1", secret="secret1" },
+            user2 = { authrole = "userRole2", secret="secret2" }
+        },
+        challengeCallback = function (sessionid, authid)
+            -- Generate a challenge string somehow and return it
+            -- Do not forget to save it somewhere for response validation!
+            
+            return "{ \"nonce\": \"LHRTC9zeOIrt_9U3\"," ..
+                     "\"authprovider\": \"usersProvider\", \"authid\": \"" .. authid .. "\"," ..
+                     "\"timestamp\": \"" .. os.date("!%FT%TZ") .. "\"," ..
+                     "\"authrole\": \"userRole1\", \"authmethod\": \"wampcra\"," ..
+                     "\"session\": " .. sessionid .. "}"
+        end,
+        authCallback = function (sessionid, signature)
+            -- Validate responsed signature against challenge
+            -- return auth info object (like bellow) or nil if failed
+            return { authid="user1", authrole="userRole1", authmethod="wampcra", authprovider="usersProvider" }
+        end
+    }
+})
+```
+
+[Back to TOC](#table-of-contents)
+
+Call and Publication trust levels
+==================================
+
+Beginning with v0.9.0 Wiola supports Call and Publication trust levels labeling
+To setup trust levels you need to [config](#configconfig) Wiola somewhere in nginx/openresty before request processing.
+In simple case, you can do it just in nginx http config section.
+For static configuration, authid option takes precendence over authrole, which takes precendence over client ip.
+For example, if client match all three options (authid, authrole, client ip), than trust level from auth id will be set. 
+
+```lua
+local cfg = require "wiola.config"
+
+-- Static trustlevel configuration
+cfg.config({
+    trustLevels = {
+        authType = "static",
+        defaultTrustLevel = 5,
+        staticCredentials = {
+            byAuthid = {
+                { authid = "user1", trustlevel = 1 },
+                { authid = "admin1", trustlevel = 5 }
+            },
+            byAuthRole = {
+                { authrole = "user-role", trustlevel = 2 },
+                { authrole = "admin-role", trustlevel = 4 }
+            },
+            byClientIp = {
+                { clientip = "127.0.0.1", trustlevel = 10 }
+            }
+        }
+    }
+})
+
+-- Dynamic trustlevel configuration
+cfg.config({
+    trustLevels = {
+        authType = "dynamic",
+        authCallback = function (clientIp, realm, authid, authrole)
+        
+            -- write your own logic for setting trust level
+            -- just a simple example
+            
+            if clientIp == "127.0.0.1" then
+                return 15
+            end
+
+            if realm == "test" then
+                return nil
+            end
+
+            return 5
+        end
+    }
+})
+```
+
+[Back to TOC](#table-of-contents)
+
 Methods
 ========
 
@@ -171,7 +330,7 @@ Parameters:
         * **cookieName** - Name of cookie with auth info. Default: "wampauth"
         * **staticCredentials** - Array-like table with string items, allowed to connect. Is used with authType="static"
         * **authCallback** - Callback function for authentication. Is used with authType="dynamic". Value of cookieName
-         is passed as first parameter. Should return boolean flag, true - allows connection, false - prevent connection
+        is passed as first parameter. Should return boolean flag, true - allows connection, false - prevent connection
     * **wampCRA** - WAMP Challenge-Response ("WAMP-CRA") authentication configuration table:
         * **authType** - Type of auth. Possible values: none | static | dynamic. Default: "none", which means - don't use
         * **staticCredentials** - table with keys, named as authids and values like { authrole = "userRole1", secret="secret1" },
@@ -184,6 +343,16 @@ Parameters:
         Is called on AUTHENTICATE message, passing session ID as first parameter and signature as second one.
         Should return auth info object { authid="user1", authrole="userRole", authmethod="wampcra", authprovider="usersProvider" }
         or nil | false in case of failure.
+    * **trustLevels** - Trust levels configuration table:
+        * **authType** - Type of auth. Possible values: none | static | dynamic. Default: "none", which means - don't use
+        * **defaultTrustLevel** - Default trust level for clients that doesn't match to any static credentials. 
+        Should be any positive integer or nil for omitting
+        * **staticCredentials** - Is used with authType="static". Has 3 subtables:
+            * byAuthid. This array-like table holds items like `{ authid = "user1", trustlevel = 1 }`  
+            * byAuthRole. This array-like table holds items like `{ authrole = "user-role", trustlevel = 2 }`
+            * byClientIp. This array-like table holds items like `{ clientip = "127.0.0.1", trustlevel = 10 }`
+        * **authCallback** - Callback function for getting trust level for client. It accepts (client ip address, realm,
+        authid, authrole) and returns trust level (positive integer or nil)
     * **metaAPI** - Meta API configuration table:
         * **session** - Expose session meta api? Possible values: true | false. Default: false.
         * **subscription** - Expose subscription meta api? Possible values: true | false. Default: false.
@@ -193,7 +362,7 @@ When called without parameters, returns current configuration.
 When setting configuration, returns nothing.
 
 Config example (multiple options, just for showcase):
-```nginx
+```lua
     init_by_lua_block {
         local cfg = require "wiola.config"
         cfg.config({
@@ -311,66 +480,6 @@ Returns:
 
  * **response data** (JSON encoded WAMP response message in case of error, or { result = true })
  * **httpCode** HTTP status code (HTTP_OK/200 in case of success, HTTP_FORBIDDEN/403 in case of error)
-
-[Back to TOC](#table-of-contents)
-
-Authentication
-==============
-
-Beginning with v0.6.0 Wiola supports several types of authentication:
-
-* Cookie authentication:
-     * Static configuration
-     * Dynamic callback
-* Challenge Response Authentication:
-     * Static configuration
-     * Dynamic callback
-
-Also it is possible to use both types of authentication :) 
-To setup authentication you need to [configure](#configconfig) Wiola somewhere in nginx/openresty before request processing.
-In simple case, you can do it just in nginx http config section.
-
-```lua
-local cfg = require "wiola.config"
-cfg.config({
-    cookieAuth = {
-        authType = "dynamic",              -- none | static | dynamic
-        cookieName = "wampauth",
-        staticCredentials = { "user1:pass1", "user2:pass2"},
-        authCallback = function (creds)
-            -- Validate credentials somehow
-            -- return true, if valid 
-            if isValid(creds) then 
-                return true
-            end
-
-            return false
-        end
-    },
-    wampCRA = {
-        authType = "dynamic",              -- none | static | dynamic
-        staticCredentials = {
-            user1 = { authrole = "userRole1", secret="secret1" },
-            user2 = { authrole = "userRole2", secret="secret2" }
-        },
-        challengeCallback = function (sessionid, authid)
-            -- Generate a challenge string somehow and return it
-            -- Do not forget to save it somewhere for response validation!
-            
-            return "{ \"nonce\": \"LHRTC9zeOIrt_9U3\"," ..
-                     "\"authprovider\": \"usersProvider\", \"authid\": \"" .. authid .. "\"," ..
-                     "\"timestamp\": \"" .. os.date("!%FT%TZ") .. "\"," ..
-                     "\"authrole\": \"userRole1\", \"authmethod\": \"wampcra\"," ..
-                     "\"session\": " .. sessionid .. "}"
-        end,
-        authCallback = function (sessionid, signature)
-            -- Validate responsed signature against challenge
-            -- return auth info object (like bellow) or nil if failed
-            return { authid="user1", authrole="userRole1", authmethod="wampcra", authprovider="usersProvider" }
-        end
-    }
-})
-```
 
 [Back to TOC](#table-of-contents)
 
