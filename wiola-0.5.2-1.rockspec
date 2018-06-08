@@ -1,17 +1,17 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "wiola"
-version = "0.5.1-1"
+version = "0.5.2-1"
 
 -- LuaDist source
 source = {
-  tag = "0.5.1-1",
+  tag = "0.5.2-1",
   url = "git://github.com/LuaDist-testing/wiola.git"
 }
 -- Original source
 -- source = {
 --     url = "git://github.com/KSDaemon/wiola.git",
---     tag = "v0.5.1"
+--     tag = "v0.5.2"
 -- }
 
 description = {
