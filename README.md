@@ -59,7 +59,7 @@ From v0.3.1 Wiola also supports lightweight POST event publishing. See processPo
 Usage example
 =============
 
-For example usage, please see [handler.lua](src/wiola/handler.lua) file.
+For example usage, please see [ws-handler.lua](src/wiola/ws-handler.lua) file.
 
 [Back to TOC](#table-of-contents)
 
@@ -100,6 +100,9 @@ http {
         -- Wiola configuration. You can read more in description of .configure() method below.
         local cfg = require "wiola.config"
         cfg.config({
+            socketTimeout = 1000,           -- one second
+            maxPayloadLen = 65536,
+            realms = { "app", "admin" },
             store = "redis",
             storeConfig = {
                 host = "unix:///tmp/redis.sock",  -- Optional parameter. Can be hostname/ip or socket path  
@@ -162,7 +165,6 @@ http {
     server {
        # example location for websocket WAMP connection
        location /ws/ {
-          set $wiola_socket_timeout 100;     # Optional parameter. Set the value to suit your needs
           set $wiola_max_payload_len 65535; # Optional parameter. Set the value to suit your needs
           
           lua_socket_log_errors off;
@@ -171,7 +173,7 @@ http {
           # This is needed to set additional websocket protocol headers
           header_filter_by_lua_file $document_root/lua/wiola/headers.lua;
           # Set a handler for connection
-          content_by_lua_file $document_root/lua/wiola/handler.lua;
+          content_by_lua_file $document_root/lua/wiola/ws-handler.lua;
        }
     
        # example location for a lightweight POST event publishing
@@ -320,6 +322,11 @@ or are nils if not specified.
 Parameters:
 
  * **config** - Configuration table with possible options:
+    * **socketTimeout** - Timeout for underlying socket connection operations. Default: 100 ms
+    * **maxPayloadLen** - Maximal length of payload allowed when sending and receiving using underlying socket. 
+    Default: 65536 bytes (2^16). For raw socket transport please use values, aligned with power of two between 9 and 24. 2^9, 2^10 .. 2^24.
+    * **realms** - Array of allowed WAMP realms. Default value: {} - so no clients will connect to router. Also it's possible
+    to set special realm { "*" } - which allows to create any realm on client request if it not exists, great for development use.
     * **redis** - Redis connection configuration table:
         * **host** - Redis server host or Redis unix socket path. Default: "unix:/tmp/redis.sock"
         * **port** - Redis server port (in case of use network connection). Omit for socket connection
@@ -366,6 +373,9 @@ Config example (multiple options, just for showcase):
     init_by_lua_block {
         local cfg = require "wiola.config"
         cfg.config({
+            socketTimeout = 1000,           -- one second
+            maxPayloadLen = 65536,
+            realms = { "test", "app" },
             callerIdentification = "always",
             redis = {
                 host = "unix:/tmp/redis.sock"   -- Optional parameter. Can be hostname/ip or socket path

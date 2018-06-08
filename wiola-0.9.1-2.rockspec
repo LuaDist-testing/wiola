@@ -1,18 +1,10 @@
--- This file was automatically generated for the LuaDist project.
+package = "Wiola"
+version = "0.9.1-2"
 
-package = "wiola"
-version = "0.9.0-1"
-
--- LuaDist source
 source = {
-  tag = "0.9.0-1",
-  url = "git://github.com/LuaDist-testing/wiola.git"
+    url = "git://github.com/KSDaemon/wiola.git",
+    tag = "v0.9.1"
 }
--- Original source
--- source = {
---     url = "git://github.com/KSDaemon/wiola.git",
---     tag = "v0.9.0"
--- }
 
 description = {
     summary = "LUA WAMP router",
@@ -42,7 +34,8 @@ build = {
         ['wiola'] = 'lib/wiola.lua',
         ['wiola.config'] = 'lib/config.lua',
         ['wiola.flushdb'] = 'lib/flushdb.lua',
-        ['wiola.handler'] = 'lib/handler.lua',
+        ['wiola.ws-handler'] = 'lib/ws-handler.lua',
+        ['wiola.raw-handler'] = 'lib/raw-handler.lua',
         ['wiola.headers'] = 'lib/headers.lua',
         ['wiola.post-handler'] = 'lib/post-handler.lua',
         ['wiola.serializers.json_serializer'] = 'lib/json_serializer.lua',

@@ -5,11 +5,12 @@
 --
 local wsServer = require "resty.websocket.server"
 local wiola = require "wiola"
+local config = require("wiola.config").config()
 local webSocket, wampServer, ok, err, bytes
 
 webSocket, err = wsServer:new({
-    timeout = tonumber(ngx.var.wiola_socket_timeout, 10) or 100,
-    max_payload_len = tonumber(ngx.var.wiola_max_payload_len, 10) or 65535
+    timeout = config.socketTimeout,
+    max_payload_len = config.maxPayloadLen
 })
 
 if not webSocket then
@@ -33,10 +34,10 @@ local function removeConnection(_, sessId)
 
     ngx.log(ngx.DEBUG, "Cleaning up session: ", sessId)
 
-    local config = require("wiola.config").config()
+    local wconfig = require("wiola.config").config()
     local store = require('wiola.stores.' .. config.store)
 
-    ok, err = store:init(config)
+    ok, err = store:init(wconfig)
     if not ok then
         ngx.log(ngx.DEBUG, "Can not init datastore!", err)
     else
