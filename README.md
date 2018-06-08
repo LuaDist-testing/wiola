@@ -1,7 +1,7 @@
 wiola
 =====
 
-WAMP (WebSocket Application Messaging Protocol) implementation on Lua, using the power of LUA Nginx module,
+WAMP (WebSocket Application Messaging Protocol) implementation on Lua, using the power of Lua Nginx module,
 Lua WebSocket addon, and Redis as cache store.
 
 Table of Contents
@@ -26,7 +26,7 @@ Description
 
 Wiola implements [WAMP specification][] v2 router specification on top of OpenResty web app server,
  which is actually nginx plus a bunch of 3rd party modules, such as lua-nginx-module, lua-resty-websocket,
- lua-resty-redis, lua-resty-libcjson and so on.
+ lua-resty-redis and so on.
 
 wiola supports next WAMP roles and features:
 
