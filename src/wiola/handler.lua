@@ -5,9 +5,9 @@
 --
 local wsServer = require "resty.websocket.server"
 local wiola = require "wiola"
-local wampServer = wiola:new()
+local webSocket, wampServer, ok, err, bytes
 
-local webSocket, err = wsServer:new({
+webSocket, err = wsServer:new({
     timeout = tonumber(ngx.var.wiola_socket_timeout, 10) or 100,
     max_payload_len = tonumber(ngx.var.wiola_max_payload_len, 10) or 65535
 })
@@ -19,9 +19,9 @@ end
 
 ngx.log(ngx.DEBUG, "Created websocket")
 
-local redisOk, redisErr = wampServer:setupRedis()
-if not redisOk then
-    ngx.log(ngx.DEBUG, "Failed to connect to redis: ", redisErr)
+wampServer, err = wiola:new()
+if not wampServer then
+    ngx.log(ngx.DEBUG, "Failed to create a wiola instance: ", err)
     return ngx.exit(444)
 end
 
@@ -29,30 +29,20 @@ local sessionId, dataType = wampServer:addConnection(ngx.var.connection, ngx.hea
 ngx.log(ngx.DEBUG, "Adding connection to list. Conn Id: ", ngx.var.connection)
 ngx.log(ngx.DEBUG, "Session Id: ", sessionId, " selected protocol: ", ngx.header["Sec-WebSocket-Protocol"])
 
-local function removeConnection(premature, sessionId)
+local function removeConnection(_, sessId)
 
-    ngx.log(ngx.DEBUG, "removeConnection callback fired!")
+    ngx.log(ngx.DEBUG, "Cleaning up session: ", sessId)
 
-    local redisOk, redisErr
-    local redisLib = require "resty.redis"
-    local wiola_config = require "wiola.config"
+    local config = require("wiola.config").config()
+    local store = require('wiola.stores.' .. config.store)
 
-    local redis = redisLib:new()
-    local conf = wiola_config.config()
-
-    if conf.redis.port == nil then
-        redisOk, redisErr = redis:connect(conf.redis.host)
+    ok, err = store:init(config)
+    if not ok then
+        ngx.log(ngx.DEBUG, "Can not init datastore!", err)
     else
-        redisOk, redisErr = redis:connect(conf.redis.host, conf.redis.port)
+        store:removeSession(sessId)
+        ngx.log(ngx.DEBUG, "Session data successfully removed!")
     end
-
-    if redisOk and conf.redis.db ~= nil then
-        redis:select(conf.redis.db)
-    end
-
-    local wiola_cleanup = require "wiola.cleanup"
-    wiola_cleanup.cleanupSession(redis, sessionId)
-
 end
 
 local function removeConnectionWrapper()
@@ -60,7 +50,7 @@ local function removeConnectionWrapper()
     removeConnection(true, sessionId)
 end
 
-local ok, err = ngx.on_abort(removeConnectionWrapper)
+ok, err = ngx.on_abort(removeConnectionWrapper)
 if not ok then
     ngx.log(ngx.ERR, "failed to register the on_abort callback: ", err)
     ngx.exit(444)
@@ -68,13 +58,36 @@ end
 
 while true do
 --    ngx.log(ngx.DEBUG, "Started handler loop!")
+    local cliData, data, typ, hflags
+
+    hflags = wampServer:getHandlerFlags(sessionId)
+    if hflags ~= nil then
+        if hflags.sendLast == true then
+            cliData = wampServer:getPendingData(sessionId, true)
+
+            if dataType == 'binary' then
+                bytes, err = webSocket:send_binary(cliData)
+            else
+                bytes, err = webSocket:send_text(cliData)
+            end
+
+            if not bytes then
+                ngx.log(ngx.ERR, "Failed to send data: ", err)
+            end
+        end
+
+        if hflags.close == true then
+            ngx.log(ngx.DEBUG, "Got close connection flag for session")
+            ngx.timer.at(0, removeConnection, sessionId)
+            return ngx.exit(444)
+        end
+    end
 
 --    ngx.log(ngx.DEBUG, "Checking data for client...")
-    local cliData, cliErr = wampServer:getPendingData(sessionId)
+    cliData = wampServer:getPendingData(sessionId)
 
     while cliData ~= ngx.null do
         ngx.log(ngx.DEBUG, "Got data for client. DataType is ", dataType, ". Sending...")
-        local bytes, err
         if dataType == 'binary' then
             bytes, err = webSocket:send_binary(cliData)
         else
@@ -85,7 +98,7 @@ while true do
             ngx.log(ngx.ERR, "Failed to send data: ", err)
         end
 
-        cliData, cliErr = wampServer:getPendingData(sessionId)
+        cliData = wampServer:getPendingData(sessionId)
     end
 
     if webSocket.fatal then
@@ -94,11 +107,11 @@ while true do
         return ngx.exit(444)
     end
 
-    local data, typ, err = webSocket:recv_frame()
+    data, typ = webSocket:recv_frame()
 
     if not data then
 
-        local bytes, err = webSocket:send_ping()
+        bytes, err = webSocket:send_ping()
         if not bytes then
             ngx.log(ngx.ERR, "Failed to send ping: ", err)
             ngx.timer.at(0, removeConnection, sessionId)
@@ -108,7 +121,7 @@ while true do
     elseif typ == "close" then
 
         ngx.log(ngx.DEBUG, "Normal closing websocket. SID: ", ngx.var.connection)
-        local bytes, err = webSocket:send_close(1000, "Closing connection")
+        bytes, err = webSocket:send_close(1000, "Closing connection")
             if not bytes then
                 ngx.log(ngx.ERR, "Failed to send the close frame: ", err)
                 return
@@ -119,14 +132,14 @@ while true do
 
     elseif typ == "ping" then
 
-        local bytes, err = webSocket:send_pong()
+        bytes, err = webSocket:send_pong()
         if not bytes then
             ngx.log(ngx.ERR, "Failed to send pong: ", err)
             ngx.timer.at(0, removeConnection, sessionId)
             return ngx.exit(444)
         end
 
-    elseif typ == "pong" then
+--    elseif typ == "pong" then
 
 --        ngx.log(ngx.DEBUG, "client ponged")
 

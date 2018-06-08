@@ -12,13 +12,12 @@ module.exports = function(grunt) {
             main: {
                 expand: true,
                 flatten: true,
-                src: 'src/wiola/*.lua',
+                src: 'src/wiola/**/*.lua',
                 dest: 'lib/',
                 options: {
                     process: function (content, srcpath) {
                         return content.replace(/\s*(\-\-)?\s*ngx\.log.*/g,'')
-                            .replace(/\s*require.*debug\.var_dump.*/g,'')
-                            .replace(/\s*(\-\-)?\s*var_dump.*/g,'');
+                            .replace(/.*getdump.*/g,'');
                     }
                 }
             }

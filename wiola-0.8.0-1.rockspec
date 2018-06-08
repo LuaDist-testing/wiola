@@ -1,17 +1,17 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "wiola"
-version = "0.7.0-2"
+version = "0.8.0-1"
 
 -- LuaDist source
 source = {
-  tag = "0.7.0-2",
+  tag = "0.8.0-1",
   url = "git://github.com/LuaDist-testing/wiola.git"
 }
 -- Original source
 -- source = {
 --     url = "git://github.com/KSDaemon/wiola.git",
---     tag = "v0.7.0"
+--     tag = "v0.8.0"
 -- }
 
 description = {
@@ -40,13 +40,13 @@ build = {
     type = 'builtin',
     modules = {
         ['wiola'] = 'lib/wiola.lua',
-        ['wiola.cleanup'] = 'lib/cleanup.lua',
-        ['wiola.flushdb'] = 'lib/flushdb.lua',
         ['wiola.config'] = 'lib/config.lua',
+        ['wiola.flushdb'] = 'lib/flushdb.lua',
         ['wiola.handler'] = 'lib/handler.lua',
         ['wiola.headers'] = 'lib/headers.lua',
-        ['wiola.json_serializer'] = 'lib/json_serializer.lua',
-        ['wiola.msgpack_serializer'] = 'lib/msgpack_serializer.lua',
         ['wiola.post-handler'] = 'lib/post-handler.lua',
+        ['wiola.serializers.json_serializer'] = 'lib/json_serializer.lua',
+        ['wiola.serializers.msgpack_serializer'] = 'lib/msgpack_serializer.lua',
+        ['wiola.stores.redis'] = 'lib/redis.lua',
     }
 }

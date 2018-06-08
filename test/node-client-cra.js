@@ -12,9 +12,11 @@ let ws, d = Date.now();
 console.log('0: Initializing wampy and connecting to server...');
 
 ws = new Wampy('ws://webxp/ws/', {
+    debug: false,
     ws: w3cws,
     realm: 'test',
     authid: 'user1',
+    authmethods: ['wampcra'],
     onChallenge: (method, info) => {
         console.log('Requested challenge with ', method, info);
         return wampyCra.sign('secret1', info.challenge);
@@ -28,8 +30,8 @@ ws = new Wampy('ws://webxp/ws/', {
                    ws.publish('message.received', ['New message'], null, { exclude_me: false });
                }, 5000);
            },
-           onError: function (err, details) { console.log('+' + (Date.now() - d) + 'ms: Subscription error:' + err); },
-           onEvent: function (arrayPayload, objectPayload) {
+           onError: function (err) { console.log('+' + (Date.now() - d) + 'ms: Subscription error:' + err); },
+           onEvent: function (res) {
                console.log('+' + (Date.now() - d) + 'ms: Received new message!');
                console.log('+' + (Date.now() - d) + 'ms: Closing connection...');
                ws.disconnect();
